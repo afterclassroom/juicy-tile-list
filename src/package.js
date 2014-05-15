@@ -101,10 +101,6 @@ Package.prototype.packItems = function packItems( setup, elements ) {
   var that = this,
       packer = new Packer(setup);
 
-  if(!this.originalHeights) {
-    this.originalHeights = [];
-  }
-
   //pack rectangles, and calculate container size
   setup.items
     .sort(this.sorter) // sort- if neded
@@ -125,13 +121,16 @@ Package.prototype.packItems = function packItems( setup, elements ) {
         }
       }
 
+      //first calculate rect width because it cannot be auto TODO: fix for downRight mode
+      if( typeof rect.width == "string" && rect.width.indexOf("%") > 0 ){
+        rect.width = ( (setup.width + setup.gap) * parseFloat(rect.width) /100  - setup.gap);
+      }
+
       if( element ){ // itemSetup.index - if it is real element not a virtual group
         var elStyle = element.style;
-        if(typeof that.originalHeights[itemSetup.index] === 'undefined') {
-          that.originalHeights[itemSetup.index] = (element.clientHeight);
-        }
+        elStyle.width = rect.width + "px"; //apply calculated width so browser can do layout
         if(rect.height == "auto") {
-          rect.height = that.originalHeights[index];
+          rect.height = Infinity;
           elStyle.overflowY = "visible";
         }
         else {
@@ -143,31 +142,45 @@ Package.prototype.packItems = function packItems( setup, elements ) {
       }
       // caluclate relative size
       // we cannot use calc(xx% - gap px) as it can be in virtual container which is a sibling
-      if( typeof rect.height == "string" && rect.height.indexOf("%") > 0 ){
+      if( typeof rect.height == "string" && rect.height != "auto" && rect.height.indexOf("%") > 0 ){
         rect.height = ( (setup.height + setup.gap) * parseFloat(rect.height) /100 - setup.gap );
-      }
-      if( typeof rect.width == "string" && rect.width.indexOf("%") > 0 ){
-        rect.width = ( (setup.width + setup.gap) * parseFloat(rect.width) /100  - setup.gap);
       }
 
       // Pack item
       packer.add(rect);
 
-      that.stretchContainer(rect);
-
-      if( element ){ // itemSetup.index - if it is real element not a virtual group
-        // update oryginal element
-        elStyle.top = rect.y + "px";
-        elStyle.left = rect.x + "px";
-        elStyle.width = rect.width + "px";
-        elStyle.height = rect.height + "px"
-      }
-      if ( itemSetup.items ){
-        return that.packItems(
+      if (itemSetup.items) {
+        var childPacker = that.packItems(
           rect,// use packed (offset) rectangle as setup
           elements
         );
       }
+
+      if (itemSetup.height == "auto") {
+        if (itemSetup.items) { //container
+          rect.height = 0;
+          for (var i = 0, ilen = childPacker.slots.length; i < ilen; i++) {
+            if (childPacker.slots[i].y > rect.height) {
+              rect.height = childPacker.slots[i].y;
+            }
+          }
+        }
+        else { //element
+          elStyle.height = ""; //slow, but I don't know another way to measure real height when element's content has shrinked other than remove height property before measuring (Marcin)
+          rect.height = element.scrollHeight; //now we can measure scrollHeight because width is already set and height is not constrained
+        }
+      }
+
+      if (element) { // itemSetup.index - if it is real element not a virtual group
+        // update oryginal element
+        elStyle.top = rect.y + "px";
+        elStyle.left = rect.x + "px";
+        elStyle.height = rect.height + "px"
+      }
+
+      //TODO height=auto results in Infinity reserving the whole vertical space after the container
+
+      that.stretchContainer(rect);
   });
 
   if( that.layersOrientation !== "vertical"){
@@ -177,6 +190,8 @@ Package.prototype.packItems = function packItems( setup, elements ) {
   }
 
 
+
+  return packer;
 };
 
 Package.prototype.stretchContainer = function( rectangle ) {
